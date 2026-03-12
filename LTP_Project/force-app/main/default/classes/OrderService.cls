@@ -1,90 +1,112 @@
+/**
+ * @description Classe de service gérant la logique métier des Commandes et des Livraisons.
+ * @author Vico, Développeur Salesforce
+ * @date 2026-03-12
+ */
 public with sharing class OrderService {
 
     /**
-     * VALIDATION : Vérifie le nombre de produits (3 ou 5).
+     * @description Valide le nombre minimum de produits (Appelée par OrderTrigger).
      */
     public static void validateOrderProducts(List<Order> orders) {
         Set<Id> orderIds = new Set<Id>();
-        for (Order o : orders) if (o.Id != null) orderIds.add(o.Id);
-
-        if (orderIds.isEmpty()) return;
-
-        Map<Id, Integer> counts = new Map<Id, Integer>();
-        for (AggregateResult ar : [SELECT OrderId, COUNT(Id) total FROM OrderItem WHERE OrderId IN :orderIds GROUP BY OrderId]) {
-            counts.put((Id)ar.get('OrderId'), (Integer)ar.get('total'));
+        for (Order ord : orders) {
+            if (ord.Id != null) orderIds.add(ord.Id);
         }
 
-        for (Order o : orders) {
-            Integer totalProducts = counts.containsKey(o.Id) ? counts.get(o.Id) : 0;
-            if (totalProducts != 3 && totalProducts != 5) {
-                o.addError('La commande doit contenir exactement 3 ou 5 produits (Actuel : ' + totalProducts + ').');
+        List<Order> ordersWithItems = OrderSelector.getOrdersWithItems(orderIds);
+        Map<Id, Integer> orderToItemCount = new Map<Id, Integer>();
+        for (Order owi : ordersWithItems) {
+            orderToItemCount.put(owi.Id, owi.OrderItems.size());
+        }
+
+        for (Order ord : orders) {
+            Integer itemCount = orderToItemCount.containsKey(ord.Id) ? orderToItemCount.get(ord.Id) : 0;
+            String accountType = ord.Account.Type_de_compte__c;
+
+            if (accountType == 'Particulier' && itemCount < 3) {
+                ord.addError('Une commande pour un particulier doit contenir au moins 3 produits.');
+            } else if (accountType == 'Professionnel' && itemCount < 5) {
+                ord.addError('Une commande pour un professionnel doit contenir au moins 5 produits.');
             }
         }
     }
 
     /**
-     * VALIDATION : Vérifie la compatibilité Client/Transporteur.
+     * @description Méthode demandée par OrderTrigger pour valider le transporteur.
      */
     public static void validateCarrierType(List<Order> orders) {
-        Set<Id> accountIds = new Set<Id>();
-        Set<Id> transporterIds = new Set<Id>();
-        for (Order o : orders) {
-            if (o.AccountId != null) accountIds.add(o.AccountId);
-            if (o.Transporteur__c != null) transporterIds.add(o.Transporteur__c);
-        }
-        if (accountIds.isEmpty() || transporterIds.isEmpty()) return;
-
-        Map<Id, Account> accountMap = AccountSelector.getAccountsById(accountIds);
-        Map<Id, Transporteur__c> transporterMap = TransporterSelector.getTransportersMapById(transporterIds);
-
-        for (Order o : orders) {
-            Account acc = accountMap.get(o.AccountId);
-            Transporteur__c trans = transporterMap.get(o.Transporteur__c);
-            if (acc != null && trans != null && !trans.Type_de_client__c.contains(acc.Type_de_compte__c)) {
-                o.addError('Le transporteur ' + trans.Name + ' est incompatible avec un client ' + acc.Type_de_compte__c);
-            }
-        }
+        autoSelectCarrier(orders);
     }
 
     /**
-     * DML & LOGIQUE : Automatise la sélection du meilleur transporteur.
+     * @description NOUVELLE MÉTHODE demandée par OrderItemTrigger (Capture d'écran).
+     * @param items Liste des produits de commande ajoutés.
      */
     public static void autoSelectBestCarrier(List<OrderItem> items) {
         Set<Id> orderIds = new Set<Id>();
-        for (OrderItem item : items) orderIds.add(item.OrderId);
-        
-        List<Order> ordersToProcess = [SELECT Id, ShippingCountry, Account.Type_de_compte__c, Transporteur__c FROM Order WHERE Id IN :orderIds];
-        List<Order> ordersToUpdate = new List<Order>();
-
-        for (Order ord : ordersToProcess) {
-            if (ord.Transporteur__c == null && ord.ShippingCountry != null) {
-                List<Transporteur__c> bestCarriers = TransporterSelector.getBestCarriersWithDetails(ord.ShippingCountry, ord.Account.Type_de_compte__c);
-                if (!bestCarriers.isEmpty()) {
-                    ord.Transporteur__c = bestCarriers[0].Id;
-                    ordersToUpdate.add(ord);
-                }
-            }
+        for (OrderItem item : items) {
+            orderIds.add(item.OrderId);
         }
+        
+        // On récupère les commandes parentes pour avoir le Pays et le Type de compte
+        List<Order> ordersToProcess = [SELECT Id, BillingCountry, Account.Type_de_compte__c FROM Order WHERE Id IN :orderIds];
+        autoSelectCarrier(ordersToProcess);
+        update ordersToProcess;
+    }
 
-        if (!ordersToUpdate.isEmpty()) {
-            try {
-                update ordersToUpdate;
-            } catch (DmlException e) {
-                System.debug('Erreur DML Sélection Auto : ' + e.getMessage());
+    /**
+     * @description Logique de sélection automatique du transporteur le moins cher.
+     */
+    public static void autoSelectCarrier(List<Order> orders) {
+        for (Order ord : orders) {
+            if (ord.BillingCountry != null && ord.Account != null && ord.Account.Type_de_compte__c != null) {
+                List<Tarif_transporteur__c> options = TransporterSelector.getAvailableTariffs(
+                    ord.BillingCountry, 
+                    ord.Account.Type_de_compte__c
+                );
+                if (!options.isEmpty()) {
+                    ord.Transporteur__c = options[0].Transporteur__c;
+                }
             }
         }
     }
 
     /**
-     * DML : Nettoyage/Suppression des données de livraison.
+     * @description Récupère les options de livraison pour le composant LWC.
      */
-    public static void clearDeliveryData(Set<Id> orderIds) {
-        List<Order> orders = [SELECT Id, Transporteur__c FROM Order WHERE Id IN :orderIds];
-        for (Order o : orders) o.Transporteur__c = null;
+    @AuraEnabled(cacheable=true)
+    public static Map<String, Object> getShippingOptions(Id orderId) {
+        Map<String, Object> result = new Map<String, Object>();
+        Order ord = OrderSelector.getOrderForShipping(orderId);
+        List<Tarif_transporteur__c> availableTariffs = TransporterSelector.getAvailableTariffs(
+            ord.BillingCountry, 
+            ord.Account.Type_de_compte__c
+        );
+
+        if (availableTariffs.isEmpty()) return result;
+
+        Tarif_transporteur__c cheapest = availableTariffs[0]; 
+        Tarif_transporteur__c fastest = availableTariffs[0];
+        for (Tarif_transporteur__c t : availableTariffs) {
+            if (t.Delai_Livraison__c < fastest.Delai_Livraison__c) fastest = t;
+        }
+
+        result.put('cheapest', cheapest);
+        result.put('fastest', fastest);
+        result.put('allOptions', availableTariffs);
+        return result;
+    }
+
+    /**
+     * @description Finalise la livraison via le LWC.
+     */
+    @AuraEnabled
+    public static void confirmDelivery(Id orderId, Id carrierId) {
         try {
-            update orders;
-        } catch (DmlException e) {
-            System.debug('Erreur DML Clear : ' + e.getMessage());
+            update new Order(Id = orderId, Transporteur__c = carrierId, Status = 'Activated', EffectiveDate = Date.today());
+        } catch (Exception e) {
+            throw new AuraHandledException('Erreur : ' + e.getMessage());
         }
     }
 }

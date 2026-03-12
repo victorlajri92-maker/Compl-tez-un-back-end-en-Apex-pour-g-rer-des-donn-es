@@ -1,0 +1,65 @@
+<template>
+    <lightning-card title="Lancement de Livraison" icon-name="standard:delivery_truck">
+        <div class="slds-p-around_medium">
+            
+            <template if:false={isDelivered}>
+                <div class="slds-grid slds-gutters slds-m-bottom_medium">
+                    <div class="slds-col slds-size_1-of-2">
+                        <div class="slds-box slds-theme_shade">
+                            <p class="slds-text-title_caps">💰 La moins chère</p>
+                            <template if:true={cheapestOption}>
+                                <p class="slds-text-heading_small">{cheapestOption.Prix__c} €</p>
+                                <p class="slds-text-body_small">{cheapestOption.Transporteur__r.Name}</p>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="slds-col slds-size_1-of-2">
+                        <div class="slds-box slds-theme_shade">
+                            <p class="slds-text-title_caps">⚡ La plus rapide</p>
+                            <template if:true={fastestOption}>
+                                <p class="slds-text-heading_small">{fastestOption.Delai_Livraison__c} jours</p>
+                                <p class="slds-text-body_small">{fastestOption.Transporteur__r.Name}</p>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <lightning-combobox
+                    name="carrier"
+                    label="Sélectionner un transporteur"
+                    placeholder="Choisir une option..."
+                    value={selectedCarrierId}
+                    options={carrierOptions}
+                    onchange={handleCarrierChange}
+                    required>
+                </lightning-combobox>
+
+                <div class="slds-m-top_medium slds-text-align_right">
+                    <lightning-button 
+                        variant="brand" 
+                        label="Confirmer la livraison" 
+                        icon-name="utility:send"
+                        onclick={handleConfirm}>
+                    </lightning-button>
+                </div>
+            </template>
+
+            <template if:true={isDelivered}>
+                <div class="slds-text-align_center slds-p-vertical_large">
+                    <lightning-icon 
+                        icon-name="action:approval" 
+                        size="medium" 
+                        alternative-text="Validé">
+                    </lightning-icon>
+                    <p class="slds-m-top_medium slds-text-heading_small slds-text-color_success">
+                        Livraison configurée et commande activée.
+                    </p>
+                    <p class="slds-text-body_medium slds-m-top_x-small">
+                        Le transporteur a été enregistré avec succès.
+                    </p>
+                </div>
+            </template>
+
+        </div>
+    </lightning-card>
+</template>

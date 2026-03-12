@@ -1,29 +1,40 @@
+/**
+ * @description Classe Selector pour centraliser les requêtes SOQL sur l'objet Order.
+ * @author Vico, Développeur Salesforce
+ * @date 2026-03-12
+ */
 public with sharing class OrderSelector {
 
     /**
-     * Récupère les commandes filtrées par type de compte (Pro ou Particulier).
+     * @description Récupère les commandes avec leurs produits associés pour validation.
+     * @param orderIds Set d'identifiants de commandes.
+     * @return Liste de commandes incluant le type de compte et les OrderItems.
      */
-    public static List<Order> getOrdersByAccountType(String accountType) {
+    public static List<Order> getOrdersWithItems(Set<Id> orderIds) {
         return [
-            SELECT Id, OrderNumber, Status, TotalAmount, Account.Name, Account.Type_de_compte__c 
+            SELECT Id, 
+                   Account.Type_de_compte__c, 
+                   (SELECT Id FROM OrderItems) 
             FROM Order 
-            WHERE Account.Type_de_compte__c = :accountType 
+            WHERE Id IN :orderIds 
             WITH SECURITY_ENFORCED
-            LIMIT 100
         ];
     }
 
     /**
-     * Récupère les commandes pour un pays spécifique qui n'ont pas encore de transporteur.
+     * @description Récupère les détails d'une commande spécifique pour le calcul des frais de port.
+     * @param orderId ID de la commande.
+     * @return L'objet Order avec les informations de compte et de pays.
      */
-    public static List<Order> getOrdersByShippingCountry(String country) {
+    public static Order getOrderForShipping(Id orderId) {
         return [
-            SELECT Id, OrderNumber, ShippingCountry, Transporteur__c, Account.Type_de_compte__c
+            SELECT Id, 
+                   BillingCountry, 
+                   Account.Type_de_compte__c 
             FROM Order 
-            WHERE ShippingCountry = :country 
-            AND Transporteur__c = null
-            WITH SECURITY_ENFORCED
-            LIMIT 50
+            WHERE Id = :orderId 
+            WITH SECURITY_ENFORCED 
+            LIMIT 1
         ];
     }
 }
