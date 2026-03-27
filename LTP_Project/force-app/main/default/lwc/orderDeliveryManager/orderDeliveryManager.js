@@ -78,8 +78,22 @@ export default class OrderDeliveryManager extends LightningElement {
             return refreshApex(this.wiredOptionsResult);
 
         } catch (error) {
-            // Extraction du message d'erreur Apex
-            const message = error.body ? error.body.message : 'Une erreur inconnue est survenue';
+            // --- NETTOYAGE DU MESSAGE D'ERREUR APEX ---
+            let message = 'Une erreur inconnue est survenue';
+            
+            if (error.body && error.body.message) {
+                message = error.body.message;
+                
+                // Si c'est une erreur de validation (addError dans le trigger)
+                if (message.includes('FIELD_CUSTOM_VALIDATION_EXCEPTION,')) {
+                    // On ne garde que ce qui est après la virgule
+                    message = message.split('FIELD_CUSTOM_VALIDATION_EXCEPTION,')[1];
+                }
+                
+                // On nettoie les espaces et on enlève le ": []" final s'il existe
+                message = message.replace(': []', '').trim();
+            }
+
             this.showToast('Erreur', message, 'error');
         }
     }

@@ -1,40 +1,41 @@
 /**
- * @description Classe Selector pour centraliser les requêtes SOQL sur l'objet Order.
- * @author Vico, Développeur Salesforce
- * @date 2026-03-12
+ * @description Sélecteur pour l'objet Order (Commande).
+ * Récupère les données nécessaires à la logique de livraison et au LWC.
  */
 public with sharing class OrderSelector {
 
     /**
-     * @description Récupère les commandes avec leurs produits associés pour validation.
-     * @param orderIds Set d'identifiants de commandes.
-     * @return Liste de commandes incluant le type de compte et les OrderItems.
+     * @description Récupère les détails d'une commande spécifique pour le composant de livraison.
+     * @param orderId ID de la commande
+     * @return Order avec les relations Account et RecordType
      */
-    public static List<Order> getOrdersWithItems(Set<Id> orderIds) {
+    public static Order getOrderForShipping(Id orderId) {
+        if (orderId == null) return null;
+
         return [
             SELECT Id, 
-                   Account.Type_de_compte__c, 
-                   (SELECT Id FROM OrderItems) 
+                   OrderNumber, 
+                   BillingCountry, 
+                   Status,
+                   AccountId,
+                   Account.Name,
+                   Account.RecordType.DeveloperName // Champ indispensable pour le filtrage LWC
             FROM Order 
-            WHERE Id IN :orderIds 
-            WITH SECURITY_ENFORCED
+            WHERE Id = :orderId 
+            LIMIT 1
         ];
     }
 
     /**
-     * @description Récupère les détails d'une commande spécifique pour le calcul des frais de port.
-     * @param orderId ID de la commande.
-     * @return L'objet Order avec les informations de compte et de pays.
+     * @description Récupère les commandes avec leurs produits (OrderItems).
+     * Utilisé pour la validation du nombre de produits (3 ou 5).
      */
-    public static Order getOrderForShipping(Id orderId) {
+    public static List<Order> getOrdersWithItems(Set<Id> orderIds) {
         return [
             SELECT Id, 
-                   BillingCountry, 
-                   Account.Type_de_compte__c 
+                   (SELECT Id FROM OrderItems) 
             FROM Order 
-            WHERE Id = :orderId 
-            WITH SECURITY_ENFORCED 
-            LIMIT 1
+            WHERE Id IN :orderIds
         ];
     }
 }
